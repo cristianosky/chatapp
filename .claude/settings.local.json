@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(PGPASSWORD=12345678F psql -U postgres -h localhost -c \"CREATE DATABASE chatapp;\")",
+      "Bash(taskkill /PID 21300 /F)",
+      "Bash(node src/app.js)",
+      "Read(//tmp/**)"
+    ]
+  }
+}
