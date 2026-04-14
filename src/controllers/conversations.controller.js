@@ -104,8 +104,18 @@ async function createConversation(req, res) {
   try {
     await client.query('BEGIN');
 
-    // For direct chats: check if one already exists
+    // For direct chats: enforce accepted contact status, then check for existing conversation
     if (!isGroup) {
+      const contactCheck = await client.query(
+        `SELECT 1 FROM contacts
+         WHERE user_id = $1 AND contact_id = $2 AND status = 'accepted'`,
+        [req.user.id, participant_id]
+      );
+      if (!contactCheck.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'You must be accepted contacts to start a conversation' });
+      }
+
       const existing = await client.query(
         `SELECT c.id FROM conversations c
          JOIN conversation_participants cp1 ON cp1.conversation_id = c.id AND cp1.user_id = $1

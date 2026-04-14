@@ -28,6 +28,9 @@ function setupSocket(io) {
     const userId = socket.user.id;
     console.log(`[socket] ${socket.user.username} connected (${socket.id})`);
 
+    // Personal room — used for direct notifications (contact requests, etc.)
+    socket.join(`user:${userId}`);
+
     // Mark online in Redis
     await setOnline(userId);
 
