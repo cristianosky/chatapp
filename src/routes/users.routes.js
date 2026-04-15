@@ -8,7 +8,12 @@ router.use(authenticate);
 
 router.get   ('/search',          searchUsers);
 router.get   ('/:username',       getUserByUsername);
-router.patch ('/me',              uploadImage.single('avatar'), updateProfile);
+router.patch ('/me', (req, res, next) => {
+  uploadImage.single('avatar')(req, res, (err) => {
+    if (err) return next(err);
+    updateProfile(req, res, next);
+  });
+});
 router.post  ('/change-password', changePassword);
 
 module.exports = router;

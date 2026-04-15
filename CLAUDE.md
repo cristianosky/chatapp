@@ -1,6 +1,18 @@
 # ChatApp Backend
 
-Backend para una aplicación de chat en tiempo real tipo WhatsApp, construido con Node.js.
+Backend para una aplicación de chat en tiempo real tipo WhatsApp, construido con Node.js.  
+**URL producción:** `https://chatapp-private.duckdns.org`
+
+---
+
+## Rutas de los proyectos (para edición en futuras sesiones)
+
+| Proyecto | Ruta local |
+|----------|-----------|
+| **Backend (este proyecto)** | `C:\Users\Cristian\Desktop\Mis proyectos\chatapp` |
+| **Frontend Android** | `C:\Users\Cristian\Desktop\Mis proyectos\ChatApp-Front` |
+
+Ambos proyectos son repositorios git locales. Claude Code puede leer y editar archivos en ambas rutas y hacer commits directamente.
 
 ---
 
@@ -26,59 +38,47 @@ Backend para una aplicación de chat en tiempo real tipo WhatsApp, construido co
 ```
 chatapp/
 ├── src/
-│   ├── app.js                          # Punto de entrada: Express, Socket.io, middlewares, rutas
+│   ├── app.js
 │   ├── config/
-│   │   ├── database.js                 # Pool de conexiones PostgreSQL (pg.Pool)
-│   │   ├── redis.js                    # Cliente Redis + helpers de presencia online
-│   │   └── multer.js                   # Configuración de subida de imágenes y videos
+│   │   ├── database.js         # Pool PostgreSQL
+│   │   ├── redis.js            # Cliente Redis + helpers presencia
+│   │   └── multer.js           # Subida imágenes y videos
 │   ├── middleware/
-│   │   └── auth.js                     # Middleware JWT: verifica Bearer token, inyecta req.user
+│   │   └── auth.js             # JWT middleware
 │   ├── controllers/
-│   │   ├── auth.controller.js          # Registro, login, perfil propio
-│   │   ├── users.controller.js         # Búsqueda de usuarios, actualizar perfil, cambiar contraseña
-│   │   ├── contacts.controller.js      # Sistema de contactos tipo WhatsApp (solicitudes, aceptar, bloquear)
-│   │   ├── conversations.controller.js # Crear y listar chats directos y grupales
-│   │   └── messages.controller.js      # Enviar, listar (cursor) y eliminar mensajes
+│   │   ├── auth.controller.js
+│   │   ├── users.controller.js
+│   │   ├── contacts.controller.js
+│   │   ├── conversations.controller.js
+│   │   └── messages.controller.js
 │   ├── routes/
 │   │   ├── auth.routes.js
 │   │   ├── users.routes.js
 │   │   ├── contacts.routes.js
-│   │   └── conversations.routes.js     # También contiene las rutas de mensajes (anidadas)
+│   │   └── conversations.routes.js
 │   └── socket/
-│       └── handler.js                  # Todos los eventos Socket.io (auth, rooms, typing, presencia)
+│       └── handler.js
 ├── uploads/
-│   ├── images/                         # Imágenes subidas (servidas en /uploads/images/...)
-│   └── videos/                         # Videos subidos (servidos en /uploads/videos/...)
-├── schema.sql                          # DDL completo de PostgreSQL (idempotente con IF NOT EXISTS)
-├── .env                                # Variables de entorno locales (no commitear)
-├── .env.example                        # Plantilla de variables de entorno
-├── .gitignore
-├── ecosystem.config.js                 # Configuración PM2 para producción
-├── nginx.conf                          # Config Nginx lista para VPS + SSL
+│   ├── images/
+│   └── videos/
+├── schema.sql
+├── .env
 └── package.json
 ```
 
 ---
 
-## Variables de entorno
-
-Archivo `.env` en la raíz del proyecto (copiar desde `.env.example`):
+## Variables de entorno (.env)
 
 ```env
 PORT=3000
 NODE_ENV=development
-
-JWT_SECRET=cadena_aleatoria_larga_minimo_32_caracteres
+JWT_SECRET=cadena_aleatoria_minimo_32_caracteres
 JWT_EXPIRES_IN=7d
-
-DATABASE_URL=postgresql://postgres:tupassword@localhost:5432/chatapp
-
+DATABASE_URL=postgresql://postgres:password@localhost:5432/chatapp
 REDIS_URL=redis://localhost:6379
-
 UPLOADS_DIR=uploads
 MAX_FILE_SIZE_MB=50
-
-# URLs del frontend separadas por coma
 ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3001
 ```
 
@@ -86,380 +86,144 @@ ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3001
 
 ## Schema de la base de datos
 
-### Tabla `users`
-
+### `users`
 ```sql
-id            UUID        PK, gen_random_uuid()
-email         VARCHAR     UNIQUE NOT NULL
-password_hash VARCHAR     NOT NULL
-username      VARCHAR(50) UNIQUE NOT NULL
-display_name  VARCHAR(100)
-avatar_url    TEXT
-bio           TEXT
-created_at    TIMESTAMPTZ DEFAULT NOW()
-updated_at    TIMESTAMPTZ DEFAULT NOW()  -- actualizado por trigger
+id UUID PK, email VARCHAR UNIQUE, password_hash VARCHAR,
+username VARCHAR(50) UNIQUE, display_name VARCHAR(100),
+avatar_url TEXT, bio TEXT, created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ
 ```
 
-### Tabla `contacts`
-
-Relación direccional: `user_id` envió solicitud a `contact_id`. Cuando se acepta, se insertan dos filas (una por cada dirección) con `status = 'accepted'`.
-
+### `contacts`
+Relación direccional. Al aceptar se insertan dos filas (una por dirección).
 ```sql
-id           UUID PK
-user_id      UUID FK → users(id) ON DELETE CASCADE
-contact_id   UUID FK → users(id) ON DELETE CASCADE
-status       VARCHAR(10) NOT NULL DEFAULT 'accepted'  -- 'pending' | 'accepted' | 'blocked'
-requested_by UUID FK → users(id) ON DELETE SET NULL   -- quién inició la solicitud
-created_at   TIMESTAMPTZ
-UNIQUE (user_id, contact_id)
-CHECK  (user_id <> contact_id)
+id UUID PK, user_id UUID FK, contact_id UUID FK,
+status VARCHAR(10) DEFAULT 'accepted',  -- 'pending' | 'accepted' | 'blocked'
+requested_by UUID FK, created_at TIMESTAMPTZ
+UNIQUE(user_id, contact_id), CHECK(user_id <> contact_id)
 ```
 
-**Flujo de estados:**
-- `POST /request` → inserta una fila con `status='pending'`
-- `POST /:id/accept` → actualiza esa fila a `accepted` + inserta fila inversa `accepted`
-- `POST /:id/reject` → elimina la fila pendiente
-- `DELETE /:contactId` con `{ block: true }` → `status='blocked'` en mi fila, elimina la fila inversa
-- `DELETE /:contactId` sin body → elimina ambas filas
-
-### Tabla `conversations`
-
+### `conversations`
 ```sql
-id           UUID    PK
-is_group     BOOLEAN DEFAULT FALSE
-group_name   VARCHAR(100)
-group_avatar TEXT
-created_by   UUID FK → users(id)
-created_at   TIMESTAMPTZ
+id UUID PK, is_group BOOLEAN, group_name VARCHAR(100),
+group_avatar TEXT, created_by UUID FK, created_at TIMESTAMPTZ
 ```
 
-### Tabla `conversation_participants`
-
+### `conversation_participants`
 ```sql
-conversation_id UUID FK → conversations(id) ON DELETE CASCADE
-user_id         UUID FK → users(id)         ON DELETE CASCADE
-joined_at       TIMESTAMPTZ
-last_read_at    TIMESTAMPTZ   -- usado para calcular mensajes no leídos
-PRIMARY KEY (conversation_id, user_id)
+conversation_id UUID FK, user_id UUID FK, joined_at TIMESTAMPTZ,
+last_read_at TIMESTAMPTZ,  PRIMARY KEY(conversation_id, user_id)
 ```
 
-### Tabla `messages`
-
+### `messages`
 ```sql
-id              UUID PK
-conversation_id UUID FK → conversations(id) ON DELETE CASCADE
-sender_id       UUID FK → users(id)         ON DELETE SET NULL
-content         TEXT
-media_url       TEXT
-media_type      VARCHAR(10)  -- 'image' | 'video' | NULL
-created_at      TIMESTAMPTZ
+id UUID PK, conversation_id UUID FK, sender_id UUID FK,
+content TEXT, media_url TEXT, media_type VARCHAR(10), created_at TIMESTAMPTZ
 ```
 
-### Tabla `message_reads`
-
-Confirmaciones de lectura individuales por usuario (doble tick).
-
+### `message_reads`
 ```sql
-message_id UUID FK → messages(id) ON DELETE CASCADE
-user_id    UUID FK → users(id)    ON DELETE CASCADE
-read_at    TIMESTAMPTZ
-PRIMARY KEY (message_id, user_id)
+message_id UUID FK, user_id UUID FK, read_at TIMESTAMPTZ, PRIMARY KEY(message_id, user_id)
 ```
 
 ---
 
-## API REST
+## API REST — Formatos de respuesta confirmados
 
-Todos los endpoints (excepto registro y login) requieren header:
+> Todos los endpoints (excepto /auth/register y /auth/login) requieren `Authorization: Bearer <token>`
 
-```
-Authorization: Bearer <token>
-```
+### POST /api/conversations
+- Body: `{ participant_id }` (directo) o `{ participant_ids[], group_name }` (grupo)
+- Respuesta: `ConversationDto` **plano** (sin wrapper `{ conversation: ... }`)
+- Si ya existe conversación directa: devuelve el objeto completo con `other_user`
+- Solo se puede crear entre usuarios con `status = 'accepted'`
 
-### Autenticación — `/api/auth`
+### GET /api/conversations
+- Respuesta: `{ conversations: ConversationDto[] }`
+- Cada `ConversationDto` incluye:
+  - `other_user: { id, username, display_name, avatar_url, online }` para chats directos
+  - `last_message: { id, conversation_id, sender_id, content, media_type, created_at }` o `null`
+  - `unread_count: number`
 
+### POST /api/conversations/:id/messages
+- Body: `multipart/form-data` con `content?` y/o `media?`
+- Respuesta: `MessageDto` **plano** (sin wrapper `{ message: ... }`)
+- `sender` es objeto anidado: `{ id, username, display_name, avatar_url }`
+- Emite evento socket `new_message` con el mismo formato
+
+### GET /api/conversations/:id/messages
+- Query: `?before=<message_id>&limit=50`
+- Respuesta: `{ messages: MessageDto[], has_more }`
+- Mensajes en orden DESC (newest first) — el cliente invierte para mostrar
+- Cada mensaje incluye `sender` como objeto anidado
+- Marca la conversación como leída (`last_read_at = NOW()`)
+
+### Contactos — /api/contacts
 | Método | Ruta | Body | Descripción |
 |--------|------|------|-------------|
-| `POST` | `/register` | `{ email, password, username, display_name? }` | Crea cuenta, devuelve JWT + usuario |
-| `POST` | `/login` | `{ email, password }` | Devuelve JWT + usuario |
-| `GET` | `/me` | — | Perfil del usuario autenticado |
-
-### Usuarios — `/api/users`
-
-| Método | Ruta | Params / Body | Descripción |
-|--------|------|---------------|-------------|
-| `GET` | `/search` | `?q=texto` (mín. 2 chars) | Busca usuarios por username (máx. 20 resultados) |
-| `GET` | `/:username` | — | Perfil público + estado online |
-| `PATCH` | `/me` | `multipart/form-data`: `display_name?`, `bio?`, `avatar` (imagen) | Actualiza perfil |
-| `POST` | `/change-password` | `{ current_password, new_password }` | Cambia contraseña |
-
-### Contactos — `/api/contacts`
-
-| Método | Ruta | Body | Descripción |
-|--------|------|------|-------------|
-| `GET` | `/` | — | Lista contactos aceptados con estado online |
-| `GET` | `/pending` | — | Solicitudes recibidas pendientes |
-| `GET` | `/sent` | — | Solicitudes enviadas pendientes |
-| `POST` | `/request` | `{ username }` | Envía solicitud de contacto por username |
-| `POST` | `/:id/accept` | — | Acepta solicitud pendiente (`:id` = request_id del row) |
-| `POST` | `/:id/reject` | — | Rechaza solicitud pendiente |
-| `DELETE` | `/:contactId` | `{ block?: true }` | Elimina contacto; con `block:true` lo bloquea |
-
-**Reglas importantes:**
-- Solo se pueden crear conversaciones directas entre usuarios con `status = 'accepted'`
-- `/:id` en accept/reject es el UUID de la fila en `contacts`, no el UUID del usuario
-- `/:contactId` en DELETE es el UUID del usuario contacto
-
-### Conversaciones — `/api/conversations`
-
-| Método | Ruta | Body | Descripción |
-|--------|------|------|-------------|
-| `GET` | `/` | — | Lista de chats (último mensaje + contador de no leídos) |
-| `POST` | `/` | `{ participant_id }` para directo; `{ participant_ids[], group_name }` para grupo | Crea conversación (directo: reutiliza si ya existe). Devuelve `ConversationDto` plano (sin wrapper). Si la conversación ya existe devuelve el objeto completo con `other_user`. |
-| `GET` | `/:id` | — | Detalle de conversación + participantes |
-
-### Mensajes — `/api/conversations/:id/messages`
-
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| `GET` | `/` | Historial paginado por cursor (`?before=<message_id>&limit=50`). Devuelve `{ messages: MessageDto[], has_more }` con `sender` anidado. |
-| `POST` | `/` | Envía mensaje. `multipart/form-data`: `content?` (texto) + `media?` (imagen/video). Devuelve `MessageDto` plano con `sender` anidado. |
-| `DELETE` | `/:messageId` | Elimina mensaje propio |
-
-**Formato `MessageDto` devuelto por ambos endpoints y por el evento socket `new_message`:**
-```json
-{
-  "id": "uuid",
-  "conversation_id": "uuid",
-  "sender_id": "uuid",
-  "content": "texto",
-  "media_url": null,
-  "media_type": null,
-  "created_at": "ISO8601",
-  "sender": { "id": "uuid", "username": "...", "display_name": "...", "avatar_url": null }
-}
-```
-
-Formatos de archivo permitidos:
-- **Imágenes:** JPEG, PNG, GIF, WebP
-- **Videos:** MP4, WebM, MOV
-- **Tamaño máximo:** configurable con `MAX_FILE_SIZE_MB` (default 50 MB)
+| GET | `/` | — | Contactos aceptados con online |
+| GET | `/pending` | — | Solicitudes recibidas |
+| POST | `/request` | `{ username }` | Envía solicitud |
+| POST | `/:id/accept` | — | Acepta (`:id` = request_id, no userId) |
+| POST | `/:id/reject` | — | Rechaza |
+| DELETE | `/:contactId` | `{ block?: true }` | Elimina o bloquea |
 
 ---
 
 ## Eventos Socket.io
 
-La conexión requiere autenticación por token:
-
 ```js
-const socket = io('http://localhost:3000', {
-  auth: { token: 'Bearer eyJ...' }
-})
+// Conexión
+io('https://chatapp-private.duckdns.org', { auth: { token: 'Bearer <jwt>' } })
 ```
 
 ### Cliente → Servidor
-
-| Evento | Payload | Descripción |
-|--------|---------|-------------|
-| `typing_start` | `{ conversation_id }` | Emite "está escribiendo" al resto de la sala |
-| `typing_stop` | `{ conversation_id }` | Cancela indicador de escritura |
-| `mark_read` | `{ conversation_id }` | Marca la conversación como leída |
-| `join_conversation` | `conversation_id` (string) | Se une a la sala de una nueva conversación |
+| Evento | Payload |
+|--------|---------|
+| `join_conversation` | `conversationId` (string) |
+| `typing_start` | `{ conversation_id }` |
+| `typing_stop` | `{ conversation_id }` |
+| `mark_read` | `{ conversation_id }` |
 
 ### Servidor → Cliente
+| Evento | Payload |
+|--------|---------|
+| `new_message` | `MessageDto` con `sender` anidado |
+| `typing_start` | `{ conversation_id, user: { id, username } }` |
+| `typing_stop` | `{ conversation_id, user: { id, username } }` |
+| `messages_read` | `{ conversation_id, user_id, read_at }` |
+| `presence` | `{ user_id, online }` |
+| `contact_request` | `{ id (request_id), from: { id, username } }` |
+| `contact_accepted` | `{ id, user_id }` |
+| `contact_rejected` | `{ id }` |
 
-| Evento | Payload | Descripción |
-|--------|---------|-------------|
-| `new_message` | Objeto `message` completo con datos del sender | Nuevo mensaje en tiempo real |
-| `typing_start` | `{ conversation_id, user: { id, username } }` | Otro usuario está escribiendo |
-| `typing_stop` | `{ conversation_id, user: { id, username } }` | Otro usuario dejó de escribir |
-| `messages_read` | `{ conversation_id, user_id, read_at }` | Alguien leyó los mensajes (doble tick) |
-| `presence` | `{ user_id, online: boolean }` | Estado online de un contacto |
-| `contact_request` | `{ request_id, from: { id, username } }` | Alguien envió solicitud de contacto |
-| `contact_accepted` | `{ by: { id, username } }` | Tu solicitud fue aceptada |
-| `contact_rejected` | `{ by: { id, username } }` | Tu solicitud fue rechazada |
-
-Al conectar, el servidor une automáticamente al socket a:
-- Todas las salas `conversation:<id>` del usuario
-- La sala personal `user:<id>` (para notificaciones de contactos y presencia)
+Al conectar: el servidor une el socket a todas las salas `conversation:<id>` del usuario y a `user:<id>`.
 
 ---
 
 ## Presencia online (Redis)
 
-- Al conectar: se guarda clave `online:<userId>` en Redis con TTL de 35 segundos.
-- Heartbeat: cada 25 segundos el servidor renueva la clave.
-- Al desconectar: la clave se elimina inmediatamente y se notifica a los contactos.
-- Si Redis no está disponible, la app sigue funcionando; solo la presencia queda deshabilitada.
+- Conectar: `online:<userId>` con TTL 35s
+- Heartbeat cada 25s
+- Desconectar: elimina clave, notifica contactos
 
 ---
 
 ## Correr localmente
 
-### Requisitos
-
-- Node.js 18+
-- PostgreSQL 16 corriendo en `localhost:5432`
-- Redis 7 (opcional — solo para presencia online)
-
-### Pasos
-
 ```bash
-# 1. Instalar dependencias
 npm install
-
-# 2. Configurar variables de entorno
-cp .env.example .env
-# Editar .env con tu DATABASE_URL y JWT_SECRET
-
-# 3. Crear la base de datos (si no existe)
+cp .env.example .env   # editar DATABASE_URL y JWT_SECRET
 psql -U postgres -c "CREATE DATABASE chatapp;"
-
-# 4. Aplicar el schema
 psql -U postgres -d chatapp -f schema.sql
-
-# 5. Arrancar en modo desarrollo (nodemon)
-npm run dev
-```
-
-El servidor queda disponible en:
-- REST API: `http://localhost:3000/api`
-- WebSocket: `ws://localhost:3000`
-- Health: `http://localhost:3000/health`
-
-### Redis con Docker (opcional)
-
-```bash
-docker run -d --name chatredis -p 6379:6379 redis:7
-```
-
-### Pruebas rápidas con curl
-
-```bash
-# Registrar usuario
-curl -X POST http://localhost:3000/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email":"ana@test.com","password":"123456","username":"ana"}'
-
-# Login (guarda el token devuelto)
-TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"ana@test.com","password":"123456"}' | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
-
-# Ver perfil propio
-curl http://localhost:3000/api/auth/me \
-  -H "Authorization: Bearer $TOKEN"
-
-# Buscar usuarios
-curl "http://localhost:3000/api/users/search?q=ana" \
-  -H "Authorization: Bearer $TOKEN"
-
-# Enviar mensaje con imagen
-curl -X POST http://localhost:3000/api/conversations/<conv_id>/messages \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "content=Hola!" \
-  -F "media=@/ruta/a/imagen.jpg"
+npm run dev            # nodemon, puerto 3000
 ```
 
 ---
 
-## Desplegar en VPS Ubuntu
-
-### 1. Preparar el servidor
+## Desplegar en VPS
 
 ```bash
-# Node.js 20
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs
-
-# PostgreSQL 16
-sudo apt install -y postgresql-16
-
-# Redis 7
-sudo apt install -y redis-server
-sudo systemctl enable redis-server
-
-# Nginx
-sudo apt install -y nginx
-
-# PM2
-sudo npm install -g pm2
-
-# Certbot (SSL)
-sudo apt install -y certbot python3-certbot-nginx
-```
-
-### 2. Clonar y configurar la app
-
-```bash
-git clone <repo> /var/www/chatapp
-cd /var/www/chatapp
-cp .env.example .env
-# Editar .env con valores de producción:
-#   NODE_ENV=production
-#   JWT_SECRET=cadena_muy_larga_y_aleatoria
-#   DATABASE_URL=postgresql://chatuser:password@localhost:5432/chatapp
-#   REDIS_URL=redis://localhost:6379
-#   ALLOWED_ORIGINS=https://tu-dominio.com
-
-npm install --omit=dev
-```
-
-### 3. Base de datos
-
-```bash
-sudo -u postgres psql -c "CREATE USER chatuser WITH PASSWORD 'password_seguro';"
-sudo -u postgres psql -c "CREATE DATABASE chatapp OWNER chatuser;"
-psql $DATABASE_URL -f schema.sql
-```
-
-### 4. Nginx
-
-```bash
-# Editar nginx.conf: reemplazar your-domain.com con tu dominio real
-sudo cp nginx.conf /etc/nginx/sites-available/chatapp
-sudo ln -s /etc/nginx/sites-available/chatapp /etc/nginx/sites-enabled/
-sudo nginx -t
-
-# SSL con Let's Encrypt
-sudo certbot --nginx -d tu-dominio.com
-
-sudo systemctl reload nginx
-```
-
-### 5. PM2
-
-```bash
-cd /var/www/chatapp
-pm2 start ecosystem.config.js
-pm2 save
-pm2 startup   # genera y ejecuta el comando para arranque automático
-```
-
-### 6. Actualizaciones futuras
-
-```bash
-cd /var/www/chatapp
 git pull
 npm install --omit=dev
-pm2 reload chatapp   # zero-downtime reload
+pm2 reload chatapp     # zero-downtime
 ```
-
-### Firewall recomendado
-
-```bash
-sudo ufw allow OpenSSH
-sudo ufw allow 'Nginx Full'   # puertos 80 y 443
-sudo ufw enable
-# No exponer 3000, 5432 ni 6379 al exterior
-```
-
----
-
-## Seguridad en producción
-
-- Usar un `JWT_SECRET` de al menos 64 caracteres aleatorios (`openssl rand -hex 32`).
-- Los puertos 3000 (Node), 5432 (PostgreSQL) y 6379 (Redis) deben estar cerrados en el firewall; solo Nginx habla con Node.
-- PostgreSQL y Redis deben escuchar únicamente en `localhost` (configuración por defecto en Ubuntu).
-- Los archivos subidos en `uploads/` se sirven directamente por Nginx sin pasar por Node.
-- Nginx bloquea la ejecución de scripts dentro de `uploads/` (ver config).
