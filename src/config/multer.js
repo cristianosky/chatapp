@@ -5,45 +5,45 @@ const crypto = require('crypto');
 const MAX_BYTES = (parseInt(process.env.MAX_FILE_SIZE_MB) || 50) * 1024 * 1024;
 
 // ── Storage engines ───────────────────────────────────────────
-// Multer 2.x: destination and filename return values (no callback)
 
 function makeStorage(subfolder) {
   return multer.diskStorage({
-    destination(req, file) {
-      return path.join(process.env.UPLOADS_DIR || 'uploads', subfolder);
+    destination(req, file, cb) {
+      cb(null, path.join(process.env.UPLOADS_DIR || 'uploads', subfolder));
     },
-    filename(req, file) {
+    filename(req, file, cb) {
       const ext    = path.extname(file.originalname).toLowerCase();
       const unique = crypto.randomBytes(16).toString('hex');
-      return `${unique}${ext}`;
+      cb(null, `${unique}${ext}`);
     },
   });
 }
 
 // ── File filters ──────────────────────────────────────────────
-// Multer 2.x: fileFilter returns a boolean or throws
 
-function imageFilter(req, file) {
+function imageFilter(req, file, cb) {
   const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-  if (allowed.includes(file.mimetype)) return true;
+  if (allowed.includes(file.mimetype)) return cb(null, true);
   const err = new Error('Only JPEG, PNG, GIF and WebP images are allowed');
   err.status = 415;
-  throw err;
+  cb(err);
 }
 
-function videoFilter(req, file) {
+function videoFilter(req, file, cb) {
   const allowed = ['video/mp4', 'video/webm', 'video/quicktime'];
-  if (allowed.includes(file.mimetype)) return true;
+  if (allowed.includes(file.mimetype)) return cb(null, true);
   const err = new Error('Only MP4, WebM and MOV videos are allowed');
   err.status = 415;
-  throw err;
+  cb(err);
 }
 
-function mediaFilter(req, file) {
-  if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) return true;
+function mediaFilter(req, file, cb) {
+  if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
+    return cb(null, true);
+  }
   const err = new Error('Only image and video files are allowed');
   err.status = 415;
-  throw err;
+  cb(err);
 }
 
 // ── Exported uploaders ────────────────────────────────────────
@@ -60,17 +60,16 @@ const uploadVideo = multer({
   fileFilter: videoFilter,
 });
 
-// Single field that accepts both images and videos
 const uploadMedia = multer({
   storage: multer.diskStorage({
-    destination(req, file) {
+    destination(req, file, cb) {
       const sub = file.mimetype.startsWith('video/') ? 'videos' : 'images';
-      return path.join(process.env.UPLOADS_DIR || 'uploads', sub);
+      cb(null, path.join(process.env.UPLOADS_DIR || 'uploads', sub));
     },
-    filename(req, file) {
+    filename(req, file, cb) {
       const ext    = path.extname(file.originalname).toLowerCase();
       const unique = crypto.randomBytes(16).toString('hex');
-      return `${unique}${ext}`;
+      cb(null, `${unique}${ext}`);
     },
   }),
   limits: { fileSize: MAX_BYTES },
