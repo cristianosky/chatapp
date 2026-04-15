@@ -36,7 +36,7 @@ chatapp/
 │   ├── controllers/
 │   │   ├── auth.controller.js          # Registro, login, perfil propio
 │   │   ├── users.controller.js         # Búsqueda de usuarios, actualizar perfil, cambiar contraseña
-│   │   ├── contacts.controller.js      # Listar, agregar y eliminar contactos
+│   │   ├── contacts.controller.js      # Sistema de contactos tipo WhatsApp (solicitudes, aceptar, bloquear)
 │   │   ├── conversations.controller.js # Crear y listar chats directos y grupales
 │   │   └── messages.controller.js      # Enviar, listar (cursor) y eliminar mensajes
 │   ├── routes/
@@ -102,16 +102,25 @@ updated_at    TIMESTAMPTZ DEFAULT NOW()  -- actualizado por trigger
 
 ### Tabla `contacts`
 
-Relación direccional: user_id agregó a contact_id.
+Relación direccional: `user_id` envió solicitud a `contact_id`. Cuando se acepta, se insertan dos filas (una por cada dirección) con `status = 'accepted'`.
 
 ```sql
-id         UUID PK
-user_id    UUID FK → users(id) ON DELETE CASCADE
-contact_id UUID FK → users(id) ON DELETE CASCADE
-created_at TIMESTAMPTZ
+id           UUID PK
+user_id      UUID FK → users(id) ON DELETE CASCADE
+contact_id   UUID FK → users(id) ON DELETE CASCADE
+status       VARCHAR(10) NOT NULL DEFAULT 'accepted'  -- 'pending' | 'accepted' | 'blocked'
+requested_by UUID FK → users(id) ON DELETE SET NULL   -- quién inició la solicitud
+created_at   TIMESTAMPTZ
 UNIQUE (user_id, contact_id)
 CHECK  (user_id <> contact_id)
 ```
+
+**Flujo de estados:**
+- `POST /request` → inserta una fila con `status='pending'`
+- `POST /:id/accept` → actualiza esa fila a `accepted` + inserta fila inversa `accepted`
+- `POST /:id/reject` → elimina la fila pendiente
+- `DELETE /:contactId` con `{ block: true }` → `status='blocked'` en mi fila, elimina la fila inversa
+- `DELETE /:contactId` sin body → elimina ambas filas
 
 ### Tabla `conversations`
 
@@ -188,9 +197,18 @@ Authorization: Bearer <token>
 
 | Método | Ruta | Body | Descripción |
 |--------|------|------|-------------|
-| `GET` | `/` | — | Lista de contactos con estado online |
-| `POST` | `/` | `{ username }` | Agrega contacto por username |
-| `DELETE` | `/:contactId` | — | Elimina contacto por UUID |
+| `GET` | `/` | — | Lista contactos aceptados con estado online |
+| `GET` | `/pending` | — | Solicitudes recibidas pendientes |
+| `GET` | `/sent` | — | Solicitudes enviadas pendientes |
+| `POST` | `/request` | `{ username }` | Envía solicitud de contacto por username |
+| `POST` | `/:id/accept` | — | Acepta solicitud pendiente (`:id` = request_id del row) |
+| `POST` | `/:id/reject` | — | Rechaza solicitud pendiente |
+| `DELETE` | `/:contactId` | `{ block?: true }` | Elimina contacto; con `block:true` lo bloquea |
+
+**Reglas importantes:**
+- Solo se pueden crear conversaciones directas entre usuarios con `status = 'accepted'`
+- `/:id` en accept/reject es el UUID de la fila en `contacts`, no el UUID del usuario
+- `/:contactId` en DELETE es el UUID del usuario contacto
 
 ### Conversaciones — `/api/conversations`
 
@@ -243,8 +261,13 @@ const socket = io('http://localhost:3000', {
 | `typing_stop` | `{ conversation_id, user: { id, username } }` | Otro usuario dejó de escribir |
 | `messages_read` | `{ conversation_id, user_id, read_at }` | Alguien leyó los mensajes (doble tick) |
 | `presence` | `{ user_id, online: boolean }` | Estado online de un contacto |
+| `contact_request` | `{ request_id, from: { id, username } }` | Alguien envió solicitud de contacto |
+| `contact_accepted` | `{ by: { id, username } }` | Tu solicitud fue aceptada |
+| `contact_rejected` | `{ by: { id, username } }` | Tu solicitud fue rechazada |
 
-Al conectar, el servidor une automáticamente al socket a todas las salas `conversation:<id>` del usuario.
+Al conectar, el servidor une automáticamente al socket a:
+- Todas las salas `conversation:<id>` del usuario
+- La sala personal `user:<id>` (para notificaciones de contactos y presencia)
 
 ---
 

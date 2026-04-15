@@ -125,7 +125,7 @@ async function createConversation(req, res) {
       );
       if (existing.rows.length) {
         await client.query('ROLLBACK');
-        return res.json({ conversation: { id: existing.rows[0].id, existing: true } });
+        return res.json(existing.rows[0]);
       }
     }
 
@@ -145,7 +145,7 @@ async function createConversation(req, res) {
     }
 
     await client.query('COMMIT');
-    return res.status(201).json({ conversation });
+    return res.status(201).json(conversation);
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('createConversation error:', err);
