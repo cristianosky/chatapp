@@ -66,10 +66,29 @@ async function listConversations(req, res) {
       participantMap[p.conversation_id].push({ ...p, online: online.has(p.id) });
     });
 
-    const conversations = result.rows.map((row) => ({
-      ...row,
-      participants: participantMap[row.id] || [],
-    }));
+    const conversations = result.rows.map((row) => {
+      const others = participantMap[row.id] || [];
+      const lastMessage = row.last_message_id ? {
+        id:              row.last_message_id,
+        conversation_id: row.id,
+        sender_id:       row.last_message_sender_id,
+        content:         row.last_message_content,
+        media_type:      row.last_message_media_type,
+        created_at:      row.last_message_at,
+      } : null;
+
+      return {
+        id:           row.id,
+        is_group:     row.is_group,
+        group_name:   row.group_name,
+        group_avatar: row.group_avatar,
+        created_at:   row.created_at,
+        unread_count: parseInt(row.unread_count) || 0,
+        last_message: lastMessage,
+        other_user:   !row.is_group && others.length > 0 ? others[0] : null,
+        participants:  row.is_group ? others : [],
+      };
+    });
 
     return res.json({ conversations });
   } catch (err) {
