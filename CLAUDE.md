@@ -222,9 +222,23 @@ Authorization: Bearer <token>
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `GET` | `/` | Historial paginado por cursor (`?before=<message_id>&limit=50`) |
-| `POST` | `/` | Envía mensaje. `multipart/form-data`: `content?` (texto) + `media?` (imagen/video) |
+| `GET` | `/` | Historial paginado por cursor (`?before=<message_id>&limit=50`). Devuelve `{ messages: MessageDto[], has_more }` con `sender` anidado. |
+| `POST` | `/` | Envía mensaje. `multipart/form-data`: `content?` (texto) + `media?` (imagen/video). Devuelve `MessageDto` plano con `sender` anidado. |
 | `DELETE` | `/:messageId` | Elimina mensaje propio |
+
+**Formato `MessageDto` devuelto por ambos endpoints y por el evento socket `new_message`:**
+```json
+{
+  "id": "uuid",
+  "conversation_id": "uuid",
+  "sender_id": "uuid",
+  "content": "texto",
+  "media_url": null,
+  "media_type": null,
+  "created_at": "ISO8601",
+  "sender": { "id": "uuid", "username": "...", "display_name": "...", "avatar_url": null }
+}
+```
 
 Formatos de archivo permitidos:
 - **Imágenes:** JPEG, PNG, GIF, WebP

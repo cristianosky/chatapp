@@ -45,7 +45,21 @@ async function listMessages(req, res) {
     }
 
     const result   = await query(sql, params);
-    const messages = result.rows.reverse(); // oldest → newest
+    const messages = result.rows.reverse().map(row => ({
+      id:              row.id,
+      conversation_id: row.conversation_id,
+      sender_id:       row.sender_id,
+      content:         row.content,
+      media_url:       row.media_url,
+      media_type:      row.media_type,
+      created_at:      row.created_at,
+      sender: row.sender_id ? {
+        id:           row.sender_id,
+        username:     row.sender_username,
+        display_name: row.sender_display_name,
+        avatar_url:   row.sender_avatar,
+      } : null,
+    }));
 
     // Mark conversation as read
     await query(
@@ -109,9 +123,12 @@ async function sendMessage(req, res) {
     const sender = senderResult.rows[0];
     const fullMessage = {
       ...message,
-      sender_username:     sender.username,
-      sender_display_name: sender.display_name,
-      sender_avatar:       sender.avatar_url,
+      sender: {
+        id:           req.user.id,
+        username:     sender.username,
+        display_name: sender.display_name,
+        avatar_url:   sender.avatar_url,
+      },
     };
 
     // Emit via Socket.io if io is available
@@ -120,7 +137,7 @@ async function sendMessage(req, res) {
       io.to(`conversation:${conversationId}`).emit('new_message', fullMessage);
     }
 
-    return res.status(201).json({ message: fullMessage });
+    return res.status(201).json(fullMessage);
   } catch (err) {
     console.error('sendMessage error:', err);
     return res.status(500).json({ error: 'Internal server error' });
