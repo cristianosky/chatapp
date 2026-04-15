@@ -125,7 +125,34 @@ async function createConversation(req, res) {
       );
       if (existing.rows.length) {
         await client.query('ROLLBACK');
-        return res.json(existing.rows[0]);
+        const convId = existing.rows[0].id;
+        const fullConv = await client.query(
+          `SELECT c.*,
+                  u.id          AS other_user_id,
+                  u.username    AS other_user_username,
+                  u.display_name AS other_user_display_name,
+                  u.avatar_url  AS other_user_avatar_url
+           FROM conversations c
+           JOIN conversation_participants cp ON cp.conversation_id = c.id AND cp.user_id <> $2
+           JOIN users u ON u.id = cp.user_id
+           WHERE c.id = $1`,
+          [convId, req.user.id]
+        );
+        const row = fullConv.rows[0];
+        return res.json({
+          id:           row.id,
+          is_group:     row.is_group,
+          group_name:   row.group_name,
+          group_avatar: row.group_avatar,
+          created_at:   row.created_at,
+          unread_count: 0,
+          other_user: {
+            id:           row.other_user_id,
+            username:     row.other_user_username,
+            display_name: row.other_user_display_name,
+            avatar_url:   row.other_user_avatar_url,
+          },
+        });
       }
     }
 

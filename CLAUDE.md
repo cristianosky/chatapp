@@ -215,7 +215,7 @@ Authorization: Bearer <token>
 | Método | Ruta | Body | Descripción |
 |--------|------|------|-------------|
 | `GET` | `/` | — | Lista de chats (último mensaje + contador de no leídos) |
-| `POST` | `/` | `{ participant_id }` para directo; `{ participant_ids[], group_name }` para grupo | Crea conversación (directo: reutiliza si ya existe) |
+| `POST` | `/` | `{ participant_id }` para directo; `{ participant_ids[], group_name }` para grupo | Crea conversación (directo: reutiliza si ya existe). Devuelve `ConversationDto` plano (sin wrapper). Si la conversación ya existe devuelve el objeto completo con `other_user`. |
 | `GET` | `/:id` | — | Detalle de conversación + participantes |
 
 ### Mensajes — `/api/conversations/:id/messages`
