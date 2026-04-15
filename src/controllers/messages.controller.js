@@ -45,7 +45,7 @@ async function listMessages(req, res) {
     }
 
     const result   = await query(sql, params);
-    const messages = result.rows.reverse().map(row => ({
+    const messages = result.rows.map(row => ({
       id:              row.id,
       conversation_id: row.conversation_id,
       sender_id:       row.sender_id,
