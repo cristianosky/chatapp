@@ -13,7 +13,12 @@ router.get ('/:id', getConversation);
 
 // Messages nested under conversation
 router.get   ('/:id/messages',       listMessages);
-router.post  ('/:id/messages',       uploadMedia.single('media'), sendMessage);
+router.post  ('/:id/messages', (req, res, next) => {
+  uploadMedia.single('media')(req, res, (err) => {
+    if (err) return next(err);
+    sendMessage(req, res, next);
+  });
+});
 router.delete('/:id/messages/:messageId', deleteMessage);
 
 module.exports = router;

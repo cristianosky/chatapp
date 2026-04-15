@@ -1,23 +1,6 @@
 const multer = require('multer');
-const path   = require('path');
-const crypto = require('crypto');
 
 const MAX_BYTES = (parseInt(process.env.MAX_FILE_SIZE_MB) || 50) * 1024 * 1024;
-
-// ── Storage engines ───────────────────────────────────────────
-
-function makeStorage(subfolder) {
-  return multer.diskStorage({
-    destination(req, file, cb) {
-      cb(null, path.join(process.env.UPLOADS_DIR || 'uploads', subfolder));
-    },
-    filename(req, file, cb) {
-      const ext    = path.extname(file.originalname).toLowerCase();
-      const unique = crypto.randomBytes(16).toString('hex');
-      cb(null, `${unique}${ext}`);
-    },
-  });
-}
 
 // ── File filters ──────────────────────────────────────────────
 
@@ -46,33 +29,23 @@ function mediaFilter(req, file, cb) {
   cb(err);
 }
 
-// ── Exported uploaders ────────────────────────────────────────
+// ── Exported uploaders (memory storage — no files written to disk) ────────────
 
 const uploadImage = multer({
-  storage: makeStorage('images'),
+  storage: multer.memoryStorage(),
   limits:  { fileSize: MAX_BYTES },
   fileFilter: imageFilter,
 });
 
 const uploadVideo = multer({
-  storage: makeStorage('videos'),
+  storage: multer.memoryStorage(),
   limits:  { fileSize: MAX_BYTES },
   fileFilter: videoFilter,
 });
 
 const uploadMedia = multer({
-  storage: multer.diskStorage({
-    destination(req, file, cb) {
-      const sub = file.mimetype.startsWith('video/') ? 'videos' : 'images';
-      cb(null, path.join(process.env.UPLOADS_DIR || 'uploads', sub));
-    },
-    filename(req, file, cb) {
-      const ext    = path.extname(file.originalname).toLowerCase();
-      const unique = crypto.randomBytes(16).toString('hex');
-      cb(null, `${unique}${ext}`);
-    },
-  }),
-  limits: { fileSize: MAX_BYTES },
+  storage: multer.memoryStorage(),
+  limits:  { fileSize: MAX_BYTES },
   fileFilter: mediaFilter,
 });
 

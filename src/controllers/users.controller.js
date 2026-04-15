@@ -1,6 +1,7 @@
 const bcrypt   = require('bcryptjs');
 const { query } = require('../config/database');
 const { isOnline } = require('../config/redis');
+const { uploadToCloudinary } = require('../config/cloudinary');
 
 // ── GET /users/search?q=username ──────────────────────────────
 
@@ -49,9 +50,20 @@ async function getUserByUsername(req, res) {
 
 async function updateProfile(req, res) {
   const { display_name, bio } = req.body;
-  const avatar_url = req.file
-    ? `/uploads/${req.file.mimetype.startsWith('video/') ? 'videos' : 'images'}/${req.file.filename}`
-    : undefined;
+
+  let avatar_url;
+  if (req.file) {
+    try {
+      const result = await uploadToCloudinary(req.file.buffer, {
+        folder:        'chatapp/avatars',
+        resource_type: 'image',
+      });
+      avatar_url = result.secure_url;
+    } catch (err) {
+      console.error('Cloudinary upload error:', err);
+      return res.status(500).json({ error: 'Error al subir la imagen' });
+    }
+  }
 
   const fields  = [];
   const values  = [];

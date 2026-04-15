@@ -1,5 +1,5 @@
 const { query } = require('../config/database');
-const path       = require('path');
+const { uploadToCloudinary } = require('../config/cloudinary');
 
 // ── GET /conversations/:id/messages ───────────────────────────
 // Pagination: ?before=<message_id>&limit=50
@@ -97,9 +97,18 @@ async function sendMessage(req, res) {
   let media_type = null;
 
   if (req.file) {
-    const sub   = req.file.mimetype.startsWith('video/') ? 'videos' : 'images';
-    media_url   = `/uploads/${sub}/${req.file.filename}`;
-    media_type  = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
+    const isVideo = req.file.mimetype.startsWith('video/');
+    try {
+      const result = await uploadToCloudinary(req.file.buffer, {
+        folder:        'chatapp/messages',
+        resource_type: isVideo ? 'video' : 'image',
+      });
+      media_url  = result.secure_url;
+      media_type = isVideo ? 'video' : 'image';
+    } catch (err) {
+      console.error('Cloudinary upload error:', err);
+      return res.status(500).json({ error: 'Error al subir el archivo' });
+    }
   }
 
   if (!content && !media_url) {
