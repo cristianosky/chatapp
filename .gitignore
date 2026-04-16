@@ -1,5 +1,6 @@
 node_modules/
 .env
+.env-vps
 uploads/images/*
 uploads/videos/*
 !uploads/images/.gitkeep
