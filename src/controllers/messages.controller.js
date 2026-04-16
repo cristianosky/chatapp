@@ -125,12 +125,28 @@ async function sendMessage(req, res) {
   }
 
   try {
-    const result = await query(
-      `INSERT INTO messages (conversation_id, sender_id, content, media_url, media_type, media_encrypted)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [conversationId, req.user.id, content || null, media_url, media_type, isEncrypted && !!media_url]
-    );
+    let insertResult;
+    try {
+      insertResult = await query(
+        `INSERT INTO messages (conversation_id, sender_id, content, media_url, media_type, media_encrypted)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [conversationId, req.user.id, content || null, media_url, media_type, isEncrypted && !!media_url]
+      );
+    } catch (colErr) {
+      // Fallback: column media_encrypted may not exist yet (migration pending)
+      if (colErr.code === '42703') {
+        insertResult = await query(
+          `INSERT INTO messages (conversation_id, sender_id, content, media_url, media_type)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING *`,
+          [conversationId, req.user.id, content || null, media_url, media_type]
+        );
+      } else {
+        throw colErr;
+      }
+    }
+    const result = insertResult;
     const message = result.rows[0];
 
     // Attach sender info

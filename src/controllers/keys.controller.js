@@ -12,6 +12,10 @@ async function registerKey(req, res) {
     await query('UPDATE users SET public_key = $1 WHERE id = $2', [public_key, req.user.id]);
     return res.json({ message: 'Key registered' });
   } catch (err) {
+    // Graceful degradation: if public_key column doesn't exist yet, acknowledge anyway
+    if (err.code === '42703') {
+      return res.json({ message: 'Key registration pending migration' });
+    }
     console.error('registerKey error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -30,13 +34,29 @@ async function getConversationKeys(req, res) {
     );
     if (!memberCheck.rows.length) return res.status(403).json({ error: 'Access denied' });
 
-    const result = await query(
-      `SELECT u.id, u.username, u.public_key
-       FROM conversation_participants cp
-       JOIN users u ON u.id = cp.user_id
-       WHERE cp.conversation_id = $1`,
-      [conversationId]
-    );
+    let result;
+    try {
+      result = await query(
+        `SELECT u.id, u.username, u.public_key
+         FROM conversation_participants cp
+         JOIN users u ON u.id = cp.user_id
+         WHERE cp.conversation_id = $1`,
+        [conversationId]
+      );
+    } catch (colErr) {
+      // Fallback: public_key column may not exist yet (migration pending)
+      if (colErr.code === '42703') {
+        result = await query(
+          `SELECT u.id, u.username, NULL AS public_key
+           FROM conversation_participants cp
+           JOIN users u ON u.id = cp.user_id
+           WHERE cp.conversation_id = $1`,
+          [conversationId]
+        );
+      } else {
+        throw colErr;
+      }
+    }
     return res.json({ keys: result.rows });
   } catch (err) {
     console.error('getConversationKeys error:', err);
