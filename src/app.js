@@ -15,6 +15,7 @@ const authRoutes          = require('./routes/auth.routes');
 const usersRoutes         = require('./routes/users.routes');
 const contactsRoutes      = require('./routes/contacts.routes');
 const conversationsRoutes = require('./routes/conversations.routes');
+const keysRoutes          = require('./routes/keys.routes');
 
 // ── App setup ─────────────────────────────────────────────────
 
@@ -82,6 +83,7 @@ app.use('/api/auth',          authLimiter, authRoutes);
 app.use('/api/users',         apiLimiter,  usersRoutes);
 app.use('/api/contacts',      apiLimiter,  contactsRoutes);
 app.use('/api/conversations', apiLimiter,  conversationsRoutes);
+app.use('/api/keys',          apiLimiter,  keysRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));

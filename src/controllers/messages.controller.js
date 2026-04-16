@@ -52,6 +52,7 @@ async function listMessages(req, res) {
       content:         row.content,
       media_url:       row.media_url,
       media_type:      row.media_type,
+      media_encrypted: row.media_encrypted || false,
       created_at:      row.created_at,
       sender: row.sender_id ? {
         id:           row.sender_id,
@@ -96,15 +97,23 @@ async function sendMessage(req, res) {
   let media_url  = null;
   let media_type = null;
 
+  const isEncrypted = req.body.media_encrypted === 'true';
+
   if (req.file) {
     const isVideo = req.file.mimetype.startsWith('video/');
     try {
+      let resourceType;
+      if (isEncrypted) {
+        resourceType = 'raw'; // encrypted blob — server cannot inspect content
+      } else {
+        resourceType = isVideo ? 'video' : 'image';
+      }
       const result = await uploadToCloudinary(req.file.buffer, {
         folder:        'chatapp/messages',
-        resource_type: isVideo ? 'video' : 'image',
+        resource_type: resourceType,
       });
       media_url  = result.secure_url;
-      media_type = isVideo ? 'video' : 'image';
+      media_type = isEncrypted ? 'image' : (isVideo ? 'video' : 'image');
     } catch (err) {
       console.error('Cloudinary upload error:', err);
       return res.status(500).json({ error: 'Error al subir el archivo' });
@@ -117,10 +126,10 @@ async function sendMessage(req, res) {
 
   try {
     const result = await query(
-      `INSERT INTO messages (conversation_id, sender_id, content, media_url, media_type)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO messages (conversation_id, sender_id, content, media_url, media_type, media_encrypted)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [conversationId, req.user.id, content || null, media_url, media_type]
+      [conversationId, req.user.id, content || null, media_url, media_type, isEncrypted && !!media_url]
     );
     const message = result.rows[0];
 
@@ -132,6 +141,7 @@ async function sendMessage(req, res) {
     const sender = senderResult.rows[0];
     const fullMessage = {
       ...message,
+      media_encrypted: message.media_encrypted || false,
       sender: {
         id:           req.user.id,
         username:     sender.username,
