@@ -16,6 +16,8 @@ const usersRoutes         = require('./routes/users.routes');
 const contactsRoutes      = require('./routes/contacts.routes');
 const conversationsRoutes = require('./routes/conversations.routes');
 const keysRoutes          = require('./routes/keys.routes');
+const mediaRoutes         = require('./routes/media.routes');
+const { cleanupOldFiles } = require('./config/mediaStorage');
 
 // ── App setup ─────────────────────────────────────────────────
 
@@ -84,6 +86,7 @@ app.use('/api/users',         apiLimiter,  usersRoutes);
 app.use('/api/contacts',      apiLimiter,  contactsRoutes);
 app.use('/api/conversations', apiLimiter,  conversationsRoutes);
 app.use('/api/keys',          apiLimiter,  keysRoutes);
+app.use('/api/media',         apiLimiter,  mediaRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
@@ -105,6 +108,10 @@ app.use((err, req, res, next) => {
 });
 
 // ── Start ─────────────────────────────────────────────────────
+
+// Limpiar archivos de media expirados cada hora
+cleanupOldFiles();
+setInterval(cleanupOldFiles, 60 * 60 * 1000);
 
 const PORT = parseInt(process.env.PORT) || 3000;
 

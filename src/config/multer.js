@@ -21,7 +21,11 @@ function videoFilter(req, file, cb) {
 }
 
 function mediaFilter(req, file, cb) {
-  if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
+  if (
+    file.mimetype.startsWith('image/') ||
+    file.mimetype.startsWith('video/') ||
+    file.mimetype === 'application/octet-stream' // encrypted blobs
+  ) {
     return cb(null, true);
   }
   const err = new Error('Only image and video files are allowed');

@@ -1,5 +1,5 @@
 const { query } = require('../config/database');
-const { uploadToCloudinary } = require('../config/cloudinary');
+const { saveFile } = require('../config/mediaStorage');
 
 // ── GET /conversations/:id/messages ───────────────────────────
 // Pagination: ?before=<message_id>&limit=50
@@ -102,21 +102,13 @@ async function sendMessage(req, res) {
   if (req.file) {
     const isVideo = req.file.mimetype.startsWith('video/');
     try {
-      let resourceType;
-      if (isEncrypted) {
-        resourceType = 'raw'; // encrypted blob — server cannot inspect content
-      } else {
-        resourceType = isVideo ? 'video' : 'image';
-      }
-      const result = await uploadToCloudinary(req.file.buffer, {
-        folder:        'chatapp/messages',
-        resource_type: resourceType,
-      });
-      media_url  = result.secure_url;
+      // Guardar en disco local cifrado — nunca en Cloudinary para mensajes
+      const fileId = saveFile(req.file.buffer);
+      media_url  = `/api/media/${fileId}`;
       media_type = isEncrypted ? 'image' : (isVideo ? 'video' : 'image');
     } catch (err) {
-      console.error('Cloudinary upload error:', err);
-      return res.status(500).json({ error: 'Error al subir el archivo' });
+      console.error('Media save error:', err);
+      return res.status(500).json({ error: 'Error al guardar el archivo' });
     }
   }
 
