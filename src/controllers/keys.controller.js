@@ -26,7 +26,7 @@ async function registerKey(req, res) {
 
 async function getConversationKeys(req, res) {
   const { conversationId } = req.params;
-  try {
+  try { 
     // Verify caller is a participant
     const memberCheck = await query(
       'SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND user_id = $2',
