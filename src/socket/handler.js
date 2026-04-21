@@ -35,12 +35,17 @@ function setupSocket(io) {
     await setOnline(userId);
 
     // Auto-join all conversation rooms the user belongs to
+    // Also build verifiedRooms to gate typing/join events — single query, no duplicate
+    const verifiedRooms = new Set();
     try {
       const result = await query(
         'SELECT conversation_id FROM conversation_participants WHERE user_id = $1',
         [userId]
       );
-      result.rows.forEach((r) => socket.join(`conversation:${r.conversation_id}`));
+      result.rows.forEach((r) => {
+        verifiedRooms.add(r.conversation_id);
+        socket.join(`conversation:${r.conversation_id}`);
+      });
     } catch (err) {
       console.error('Error joining rooms:', err);
     }
@@ -51,8 +56,12 @@ function setupSocket(io) {
     // ── Heartbeat (keep Redis key alive) ─────────────────────────
     const heartbeatInterval = setInterval(() => setOnline(userId), 25_000);
 
-    // ── Typing indicators ─────────────────────────────────────────
+    function isVerifiedParticipant(conversation_id) {
+      return verifiedRooms.has(conversation_id);
+    }
+
     socket.on('typing_start', ({ conversation_id }) => {
+      if (!isVerifiedParticipant(conversation_id)) return;
       socket.to(`conversation:${conversation_id}`).emit('typing_start', {
         conversation_id,
         user: { id: userId, username: socket.user.username },
@@ -60,6 +69,7 @@ function setupSocket(io) {
     });
 
     socket.on('typing_stop', ({ conversation_id }) => {
+      if (!isVerifiedParticipant(conversation_id)) return;
       socket.to(`conversation:${conversation_id}`).emit('typing_stop', {
         conversation_id,
         user: { id: userId, username: socket.user.username },
@@ -69,13 +79,14 @@ function setupSocket(io) {
     // ── Mark messages as read ─────────────────────────────────────
     socket.on('mark_read', async ({ conversation_id }) => {
       try {
-        await query(
+        const updated = await query(
           `UPDATE conversation_participants
            SET last_read_at = NOW()
-           WHERE conversation_id = $1 AND user_id = $2`,
+           WHERE conversation_id = $1 AND user_id = $2
+           RETURNING 1`,
           [conversation_id, userId]
         );
-        // Tell the conversation room that this user read up to now
+        if (!updated.rows.length) return; // not a participant — ignore silently
         socket.to(`conversation:${conversation_id}`).emit('messages_read', {
           conversation_id,
           user_id: userId,
@@ -87,8 +98,19 @@ function setupSocket(io) {
     });
 
     // ── Join a new conversation room (e.g. after creating one) ────
-    socket.on('join_conversation', (conversation_id) => {
-      socket.join(`conversation:${conversation_id}`);
+    socket.on('join_conversation', async (conversation_id) => {
+      try {
+        const check = await query(
+          'SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND user_id = $2',
+          [conversation_id, userId]
+        );
+        if (check.rows.length) {
+          verifiedRooms.add(conversation_id);
+          socket.join(`conversation:${conversation_id}`);
+        }
+      } catch (err) {
+        console.error('join_conversation error:', err);
+      }
     });
 
     // ── Disconnect ────────────────────────────────────────────────

@@ -9,37 +9,39 @@ async function listMessages(req, res) {
   const limit  = Math.min(parseInt(req.query.limit) || 50, 100);
   const before = req.query.before; // cursor: message id
 
-  // Verify membership
-  const memberCheck = await query(
-    'SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND user_id = $2',
-    [conversationId, req.user.id]
-  );
-  if (!memberCheck.rows.length) return res.status(403).json({ error: 'Access denied' });
-
   try {
+    // Verify membership
+    const memberCheck = await query(
+      'SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND user_id = $2',
+      [conversationId, req.user.id]
+    );
+    if (!memberCheck.rows.length) return res.status(403).json({ error: 'Access denied' });
     let sql;
     let params;
 
     if (before) {
-      // Get the created_at of the cursor message first
-      const cursor = await query('SELECT created_at FROM messages WHERE id = $1', [before]);
+      // Fetch both created_at and id of the cursor message for stable pagination
+      const cursor = await query('SELECT created_at, id FROM messages WHERE id = $1', [before]);
       if (!cursor.rows.length) return res.status(400).json({ error: 'Invalid cursor' });
 
+      // Use (created_at, id) composite comparison to avoid skipping messages
+      // with identical timestamps (rare but possible under high concurrency)
       sql = `
         SELECT m.*, u.username AS sender_username, u.display_name AS sender_display_name, u.avatar_url AS sender_avatar
         FROM messages m
         JOIN users u ON u.id = m.sender_id
-        WHERE m.conversation_id = $1 AND m.created_at < $2
-        ORDER BY m.created_at DESC
-        LIMIT $3`;
-      params = [conversationId, cursor.rows[0].created_at, limit];
+        WHERE m.conversation_id = $1
+          AND (m.created_at < $2 OR (m.created_at = $2 AND m.id < $3))
+        ORDER BY m.created_at DESC, m.id DESC
+        LIMIT $4`;
+      params = [conversationId, cursor.rows[0].created_at, cursor.rows[0].id, limit];
     } else {
       sql = `
         SELECT m.*, u.username AS sender_username, u.display_name AS sender_display_name, u.avatar_url AS sender_avatar
         FROM messages m
         JOIN users u ON u.id = m.sender_id
         WHERE m.conversation_id = $1
-        ORDER BY m.created_at DESC
+        ORDER BY m.created_at DESC, m.id DESC
         LIMIT $2`;
       params = [conversationId, limit];
     }
@@ -117,28 +119,12 @@ async function sendMessage(req, res) {
   }
 
   try {
-    let insertResult;
-    try {
-      insertResult = await query(
-        `INSERT INTO messages (conversation_id, sender_id, content, media_url, media_type, media_encrypted)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING *`,
-        [conversationId, req.user.id, content || null, media_url, media_type, isEncrypted && !!media_url]
-      );
-    } catch (colErr) {
-      // Fallback: column media_encrypted may not exist yet (migration pending)
-      if (colErr.code === '42703') {
-        insertResult = await query(
-          `INSERT INTO messages (conversation_id, sender_id, content, media_url, media_type)
-           VALUES ($1, $2, $3, $4, $5)
-           RETURNING *`,
-          [conversationId, req.user.id, content || null, media_url, media_type]
-        );
-      } else {
-        throw colErr;
-      }
-    }
-    const result = insertResult;
+    const result = await query(
+      `INSERT INTO messages (conversation_id, sender_id, content, media_url, media_type, media_encrypted)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [conversationId, req.user.id, content || null, media_url, media_type, isEncrypted && !!media_url]
+    );
     const message = result.rows[0];
 
     // Attach sender info

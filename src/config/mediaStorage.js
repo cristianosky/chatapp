@@ -3,7 +3,7 @@ const path = require('path');
 const { randomUUID } = require('crypto');
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'enc');
-const TTL_MS     = 48 * 60 * 60 * 1000; // 48 horas
+const TTL_MS     = 30 * 24 * 60 * 60 * 1000; // 30 días
 
 // Crear directorio si no existe
 if (!fs.existsSync(UPLOAD_DIR)) {
